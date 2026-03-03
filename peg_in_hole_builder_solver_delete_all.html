@@ -1,0 +1,1332 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Circular Peg Solitaire — Builder + Solver</title>
+  <style>
+    :root { color-scheme: light; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(circle at 25% 20%, rgba(0,0,0,.04), transparent 45%),
+        radial-gradient(circle at 75% 35%, rgba(0,0,0,.03), transparent 50%),
+        linear-gradient(180deg, #fbf7ef, #f4efe3);
+      display:flex;
+      min-height:100vh;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+    }
+    .wrap{ width:min(1120px, 96vw); display:grid; grid-template-columns:1fr; gap:12px; }
+    .panel{
+      background: rgba(255,255,255,.78);
+      border: 1px solid rgba(0,0,0,.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.06);
+      backdrop-filter: blur(4px);
+    }
+    .row{ display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center; justify-content:space-between; }
+    .row .left, .row .right{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    button, select, input[type="range"], input[type="text"], textarea{
+      border: 1px solid rgba(0,0,0,.12);
+      background: white;
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    textarea{
+      width:100%;
+      min-height:140px;
+      font-weight:500;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      cursor:text;
+    }
+    input[type="text"]{ cursor:text; font-weight:600; }
+    button[disabled]{ opacity:.5; cursor:not-allowed; }
+    select{ cursor:pointer; max-width: 360px; }
+    button:hover:not([disabled]), select:hover:not([disabled]){ background:#fafafa; }
+    button:active:not([disabled]){ transform: translateY(1px); }
+    .hint{ font-size: 13px; opacity:.82; line-height:1.35; margin-top:10px; }
+    canvas{
+      width:100%; height:auto; aspect-ratio: 1 / 1;
+      background:
+        radial-gradient(circle at 30% 25%, rgba(0,0,0,.04), transparent 45%),
+        radial-gradient(circle at 70% 65%, rgba(0,0,0,.03), transparent 55%),
+        linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,.0));
+      border-radius: 18px;
+      border: 1px solid rgba(0,0,0,.10);
+      box-shadow: 0 18px 60px rgba(0,0,0,.10);
+      touch-action: manipulation;
+    }
+    .stat{ font-weight:700; }
+    .badge{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(0,0,0,.10);
+      background: rgba(255,255,255,.7);
+      font-size:13px;
+      white-space:nowrap;
+    }
+    .tiny{ font-size:12px; opacity:.75; }
+    .progressWrap{
+      display:flex; align-items:center; gap:10px;
+      width:min(520px, 96vw);
+      padding:8px 10px;
+      border-radius: 12px;
+      border:1px solid rgba(0,0,0,.10);
+      background: rgba(255,255,255,.65);
+    }
+    progress{
+      width:100%;
+      height:14px;
+      border-radius:999px;
+      overflow:hidden;
+    }
+    .sliderWrap{
+      display:flex; align-items:center; gap:8px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(0,0,0,.10);
+      background: rgba(255,255,255,.65);
+    }
+    input[type="range"]{ padding:0; height:14px; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    .builder{
+      display:none;
+      margin-top:10px;
+      padding-top:10px;
+      border-top:1px solid rgba(0,0,0,.08);
+    }
+    .builder.show{ display:block; }
+    .builderGrid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:10px;
+    }
+    .builderActions{
+      display:flex; flex-wrap:wrap; gap:10px;
+      align-items:center; justify-content:space-between;
+    }
+    .builderActions .left, .builderActions .right{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    }
+    .pill{
+      display:inline-flex; gap:6px; align-items:center;
+      padding:6px 10px; border-radius:999px;
+      border:1px solid rgba(0,0,0,.10);
+      background: rgba(255,255,255,.7);
+      font-size:12px;
+    }
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      border:1px solid rgba(0,0,0,.18);
+      padding:2px 6px; border-radius:8px;
+      background: rgba(255,255,255,.75);
+      font-size:12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <div class="row">
+        <div class="left">
+          <span class="badge">Puzzle: <span id="puzzleName" class="stat">—</span></span>
+          <span class="badge">Solved: <span id="solvedCount" class="stat">0</span>/<span id="totalCount" class="stat">0</span></span>
+          <span class="badge">Pegs: <span id="pegsLeft" class="stat">0</span></span>
+          <span class="badge">Moves: <span id="movesMade" class="stat">0</span></span>
+          <span class="badge">Status: <span id="status" class="stat">—</span></span>
+          <span class="badge">Difficulty: <span id="difficulty" class="stat">—</span></span>
+          <span class="badge">Solve time: <span id="solveTime" class="stat mono">—</span></span>
+        </div>
+        <div class="right">
+          <select id="puzzleSelect" title="Choose a puzzle"></select>
+          <button id="prevBtn" title="Previous puzzle">Prev</button>
+          <button id="nextBtn" title="Next puzzle">Next</button>
+          <button id="restartBtn" title="Restart current puzzle">Restart</button>
+          <button id="hintBtn" title="Show just the next best move">Hint</button>
+          <button id="solveBtn" title="Auto-solve and animate">Solve</button>
+          <button id="stopBtn" title="Stop solver" disabled>Stop</button>
+          <button id="clearSelBtn">Clear Selection</button>
+          <button id="builderToggleBtn" title="Make your own puzzle">Builder</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <div class="left">
+          <div class="progressWrap" title="Solver progress (search effort)">
+            <span class="tiny">Solver</span>
+            <progress id="solveProgress" value="0" max="1"></progress>
+            <span id="solveStats" class="tiny mono">0/0</span>
+          </div>
+        </div>
+        <div class="right">
+          <div class="sliderWrap" title="Solution playback speed">
+            <span class="tiny">Speed</span>
+            <input id="speedSlider" type="range" min="60" max="900" step="20" value="260" />
+            <span id="speedLabel" class="tiny mono">260ms</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint">
+        Click a peg to select it, then click a highlighted empty hole to jump.<br/>
+        Rules: jump over an adjacent peg into an empty hole (2 steps). The jumped peg is removed.
+        Diagonals are allowed (8 directions). Blocked holes are “missing” and can’t be used.
+        <span class="tiny">(Progress saves in your browser.)</span>
+      </div>
+
+      <div id="builderPanel" class="builder">
+        <div class="builderGrid">
+          <div class="builderActions">
+            <div class="left">
+              <span class="pill"><strong>Builder:</strong> <span id="builderModeLabel">OFF</span></span>
+              <span class="pill">Tap hole to cycle: <span class="kbd">empty</span> → <span class="kbd">peg</span> → <span class="kbd">blocked</span></span>
+            </div>
+            <div class="right">
+              <button id="editModeBtn">Enter Edit</button>
+              <button id="fillAllBtn" title="Fill all usable holes with pegs">Fill All</button>
+              <button id="clearAllBtn" title="Clear all pegs (keep blocked)">Clear All</button>
+              <button id="unblockAllBtn" title="Remove all blocked holes">Unblock All</button>
+              <button id="setGoalBtn" title="Set goal location to the currently selected hole">Set GoalAt</button>
+            </div>
+          </div>
+
+          <div class="builderActions">
+            <div class="left">
+              <input id="customName" type="text" placeholder="Custom puzzle name (e.g., My Stray 01)" style="min-width:min(420px, 90vw);" />
+              <span class="pill">Goal pegs: <span class="kbd">1</span></span>
+              <span class="pill">GoalAt: <span id="goalAtLabel" class="mono">none</span></span>
+            </div>
+            <div class="right">
+              <button id="saveCustomBtn" title="Save this layout as a puzzle (overwrites if current puzzle is custom)">Save</button>
+              <button id="newCustomBtn" title="Start a new blank custom layout">New</button>
+              <button id="deleteCustomBtn" title="Delete the selected custom puzzle">Delete</button>
+              <button id="showHiddenBtn" title="Show all hidden built-in puzzles again">Restore Deleted</button>
+              <button id="exportBtn" title="Export JSON for this layout">Export</button>
+              <button id="importBtn" title="Import JSON into the builder">Import</button>
+            </div>
+          </div>
+
+          <textarea id="jsonBox" placeholder="Exported / Imported puzzle JSON will show up here..."></textarea>
+          <div class="tiny">
+            Use the builder to create puzzles that are actually solvable, then hit <strong>Solve</strong> to verify.
+            If the solver says <strong>Solver limit reached</strong>, try making the puzzle sparser (fewer pegs / more blocked).
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <canvas id="board" width="900" height="900"></canvas>
+  </div>
+
+<script>
+(() => {
+  // ---------- DOM ----------
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+
+  const pegsLeftEl = document.getElementById('pegsLeft');
+  const movesMadeEl = document.getElementById('movesMade');
+  const statusEl = document.getElementById('status');
+  const puzzleNameEl = document.getElementById('puzzleName');
+  const puzzleSelect = document.getElementById('puzzleSelect');
+  const solvedCountEl = document.getElementById('solvedCount');
+  const totalCountEl = document.getElementById('totalCount');
+  const difficultyEl = document.getElementById('difficulty');
+  const solveTimeEl = document.getElementById('solveTime');
+
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const restartBtn = document.getElementById('restartBtn');
+  const clearSelBtn = document.getElementById('clearSelBtn');
+  const hintBtn = document.getElementById('hintBtn');
+  const solveBtn = document.getElementById('solveBtn');
+  const stopBtn = document.getElementById('stopBtn');
+
+  const solveProgress = document.getElementById('solveProgress');
+  const solveStats = document.getElementById('solveStats');
+  const speedSlider = document.getElementById('speedSlider');
+  const speedLabel = document.getElementById('speedLabel');
+
+  // Builder UI
+  const builderToggleBtn = document.getElementById('builderToggleBtn');
+  const builderPanel = document.getElementById('builderPanel');
+  const builderModeLabel = document.getElementById('builderModeLabel');
+  const editModeBtn = document.getElementById('editModeBtn');
+  const fillAllBtn = document.getElementById('fillAllBtn');
+  const clearAllBtn = document.getElementById('clearAllBtn');
+  const unblockAllBtn = document.getElementById('unblockAllBtn');
+  const setGoalBtn = document.getElementById('setGoalBtn');
+  const customName = document.getElementById('customName');
+  const goalAtLabel = document.getElementById('goalAtLabel');
+  const saveCustomBtn = document.getElementById('saveCustomBtn');
+  const newCustomBtn = document.getElementById('newCustomBtn');
+  const deleteCustomBtn = document.getElementById('deleteCustomBtn');
+  const showHiddenBtn = document.getElementById('showHiddenBtn');
+  const exportBtn = document.getElementById('exportBtn');
+  const importBtn = document.getElementById('importBtn');
+  const jsonBox = document.getElementById('jsonBox');
+
+  // ---------- Board parameters ----------
+  const GRID_RADIUS_STEPS = 7;
+
+  const DIRS = [
+    {dx:  1, dy:  0}, {dx: -1, dy:  0},
+    {dx:  0, dy:  1}, {dx:  0, dy: -1},
+    {dx:  1, dy:  1}, {dx:  1, dy: -1},
+    {dx: -1, dy:  1}, {dx: -1, dy: -1},
+  ];
+
+  // ---------- Puzzles ----------
+  const BUILTIN_PUZZLES = [
+    { id:"classic-center", name:"Classic — Center Empty", empty:[[0,0]], blocked:[], goalPegs:1 },
+    { id:"precision", name:"Precision — Finish at Center", empty:[[0,-7]], blocked:[], goalPegs:1, goalAt:[0,0] },
+    { id:"strays-01", name:"Strays 01 — 3 Lonely + Core", blocked:[], pegs:[[0,0],[1,0],[0,1],[-4,-1],[5,0],[0,-6]], goalPegs:1 },
+    { id:"strays-02", name:"Strays 02 — 4 Corners + Plus", blocked:[], pegs:[[0,0],[0,1],[0,-1],[1,0],[-1,0],[-6,0],[6,0],[0,-6],[0,6]], goalPegs:1, goalAt:[0,0] },
+  ];
+
+  // ---------- Storage ----------
+  const LS_SOLVED = "peg_circle_solved_v5";
+  const LS_LAST   = "peg_circle_last_puzzle_v5";
+  const LS_CUSTOM = "peg_circle_custom_puzzles_v1";
+  const LS_HIDDEN = "peg_circle_hidden_puzzles_v1";
+
+  function loadSolvedMap(){
+    try { return JSON.parse(localStorage.getItem(LS_SOLVED) || "{}"); }
+    catch { return {}; }
+  }
+  function saveSolvedMap(map){
+    localStorage.setItem(LS_SOLVED, JSON.stringify(map));
+  }
+  function loadCustomPuzzles(){
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_CUSTOM) || "[]");
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+  function saveCustomPuzzles(arr){
+    localStorage.setItem(LS_CUSTOM, JSON.stringify(arr));
+  }
+
+  function loadHiddenSet(){
+    try {
+      const arr = JSON.parse(localStorage.getItem(LS_HIDDEN) || "[]");
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch { return new Set(); }
+  }
+  function saveHiddenSet(set){
+    localStorage.setItem(LS_HIDDEN, JSON.stringify(Array.from(set)));
+  }
+
+
+  let PUZZLES = [];
+
+  // ---------- Model ----------
+  let nodes = [];
+  let coordToId = new Map();
+
+  let occupied = new Map();
+  let blocked = new Set();
+
+  let selectedId = null;
+  let possibleLandings = new Set();
+  let movesMade = 0;
+  let currentPuzzleIndex = 0;
+
+  // geometry
+  let spacing = 0;
+  let holeR = 0;
+  let pegR = 0;
+
+  // solver caches
+  let playableIds = [];
+  let idToCompact = new Map();
+  let moveList = [];
+  let solverRunning = false;
+  let solverStopRequested = false;
+
+  // builder state
+  let builderOpen = false;
+  let editMode = false;
+  let builderGoalAt = null; // [gx,gy] or null
+  let overwriteTargetId = null; // when editing an existing custom puzzle
+
+  // ---- Solve snapshot (restore board after showing solution) ----
+  let lastSolveSnapshot = null;
+
+  function snapshotBoardState(){
+    const pegs = [];
+    const blockedCoords = [];
+    for (const n of nodes){
+      if (blocked.has(n.id)) blockedCoords.push([n.gx, n.gy]);
+      else if (occupied.get(n.id)) pegs.push([n.gx, n.gy]);
+    }
+    return {
+      pegs,
+      blocked: blockedCoords,
+      goalAt: builderGoalAt ? [builderGoalAt[0], builderGoalAt[1]] : null,
+      puzzleNameText: puzzleNameEl.textContent,
+      customNameText: customName.value,
+      movesMade: movesMade,
+    };
+  }
+
+  function restoreBoardState(snap){
+    if (!snap) return;
+    blocked = new Set();
+    occupied = new Map();
+    for (const n of nodes) occupied.set(n.id, false);
+
+    for (const [gx,gy] of (snap.blocked || [])){
+      const id = coordToId.get(key(gx,gy));
+      if (id != null) blocked.add(id);
+    }
+    for (const [gx,gy] of (snap.pegs || [])){
+      const id = coordToId.get(key(gx,gy));
+      if (id != null && !blocked.has(id)) occupied.set(id, true);
+    }
+    for (const id of blocked) occupied.set(id, false);
+
+    builderGoalAt = snap.goalAt ? [snap.goalAt[0], snap.goalAt[1]] : null;
+    updateGoalAtLabel(builderGoalAt);
+
+    movesMade = snap.movesMade ?? 0;
+    setSelection(null);
+    possibleLandings.clear();
+
+    if (snap.puzzleNameText) puzzleNameEl.textContent = snap.puzzleNameText;
+    if (typeof snap.customNameText === 'string') customName.value = snap.customNameText;
+
+    updateUI();
+    buildSolverCaches();
+    draw();
+  }
+
+  function key(gx, gy){ return `${gx},${gy}`; }
+  function nodeById(id) { return nodes[id]; }
+
+  // ---------- Geometry ----------
+  function rebuildGeometry() {
+    const W = canvas.width, H = canvas.height;
+    const pad = Math.min(W, H) * 0.10;
+    const usable = Math.min(W, H) - pad * 2;
+
+    spacing = usable / (GRID_RADIUS_STEPS * 2 + 2);
+    holeR = spacing * 0.22;
+    pegR  = spacing * 0.18;
+
+    const cx = W / 2;
+    const cy = H / 2;
+
+    nodes = [];
+    coordToId = new Map();
+    let id = 0;
+
+    const radiusPx = GRID_RADIUS_STEPS * spacing + spacing * 0.25;
+    for (let gy = -GRID_RADIUS_STEPS; gy <= GRID_RADIUS_STEPS; gy++) {
+      for (let gx = -GRID_RADIUS_STEPS; gx <= GRID_RADIUS_STEPS; gx++) {
+        const x = cx + gx * spacing;
+        const y = cy + gy * spacing;
+        if (Math.hypot(x - cx, y - cy) <= radiusPx) {
+          const n = { id, x, y, gx, gy };
+          nodes.push(n);
+          coordToId.set(key(gx, gy), id);
+          id++;
+        }
+      }
+    }
+  }
+
+  function findClosestNode(px, py) {
+    let bestId = null, bestD = Infinity;
+    for (const n of nodes) {
+      const d = Math.hypot(n.x - px, n.y - py);
+      if (d < bestD) { bestD = d; bestId = n.id; }
+    }
+    if (bestId != null && bestD <= holeR * 2.2) return bestId;
+    return null;
+  }
+
+  // ---------- Puzzles list ----------
+  function rebuildPuzzlesList(){
+    const hidden = loadHiddenSet();
+    const builtins = BUILTIN_PUZZLES.filter(p => !hidden.has(p.id));
+    const customs = loadCustomPuzzles().filter(p => !hidden.has(p.id));
+    PUZZLES = [...builtins, ...customs];
+  }
+
+  function populatePuzzleDropdown(){
+    const solved = loadSolvedMap();
+    puzzleSelect.innerHTML = "";
+    PUZZLES.forEach((p, idx) => {
+      const opt = document.createElement("option");
+      opt.value = String(idx);
+      opt.textContent = (solved[p.id] ? "✅ " : "") + p.name;
+      puzzleSelect.appendChild(opt);
+    });
+  }
+
+  function updateSolvedUI() {
+    const m = loadSolvedMap();
+    const solved = PUZZLES.reduce((acc,p)=>acc + (m[p.id] ? 1 : 0), 0);
+    solvedCountEl.textContent = String(solved);
+    totalCountEl.textContent = String(PUZZLES.length);
+  }
+
+  // ---------- Apply puzzle ----------
+  function applyPuzzle(puz) {
+    occupied = new Map();
+    blocked = new Set();
+
+    for (const [gx,gy] of (puz.blocked || [])) {
+      const id = coordToId.get(key(gx,gy));
+      if (id != null) blocked.add(id);
+    }
+
+    if (puz.pegs && Array.isArray(puz.pegs)) {
+      for (const n of nodes) occupied.set(n.id, false);
+      for (const [gx,gy] of puz.pegs) {
+        const id = coordToId.get(key(gx,gy));
+        if (id != null && !blocked.has(id)) occupied.set(id, true);
+      }
+      for (const [gx,gy] of (puz.empty || [])) {
+        const id = coordToId.get(key(gx,gy));
+        if (id != null && !blocked.has(id)) occupied.set(id, false);
+      }
+    } else {
+      for (const n of nodes) occupied.set(n.id, !blocked.has(n.id));
+      for (const [gx,gy] of (puz.empty || [])) {
+        const id = coordToId.get(key(gx,gy));
+        if (id != null && !blocked.has(id)) occupied.set(id, false);
+      }
+    }
+
+    for (const id of blocked) occupied.set(id, false);
+
+    selectedId = null;
+    possibleLandings.clear();
+    movesMade = 0;
+
+    puzzleNameEl.textContent = puz.name;
+    statusEl.textContent = editMode ? "Builder: edit" : "Playing";
+    difficultyEl.textContent = "—";
+    solveTimeEl.textContent = "—";
+
+    builderGoalAt = puz.goalAt || null;
+    overwriteTargetId = (String(puz.id||"").startsWith("custom-")) ? puz.id : null;
+    updateGoalAtLabel(builderGoalAt);
+    customName.value = String(puz.name || "").startsWith("Custom") ? puz.name : "";
+
+    updateSolvedUI();
+    populatePuzzleDropdown();
+    updateUI();
+    updateDeleteButtonLabel();
+
+    buildSolverCaches();
+    draw();
+
+    localStorage.setItem(LS_LAST, puz.id);
+  }
+
+  function setPuzzleIndex(i){
+    currentPuzzleIndex = (i + PUZZLES.length) % PUZZLES.length;
+    puzzleSelect.value = String(currentPuzzleIndex);
+    applyPuzzle(PUZZLES[currentPuzzleIndex]);
+  }
+
+  // ---------- Moves ----------
+  function computeMovesFrom(fromId) {
+    if (blocked.has(fromId)) return [];
+    if (!occupied.get(fromId)) return [];
+    const from = nodeById(fromId);
+    const moves = [];
+    for (const dir of DIRS) {
+      const overId = coordToId.get(key(from.gx + dir.dx, from.gy + dir.dy));
+      const toId   = coordToId.get(key(from.gx + 2*dir.dx, from.gy + 2*dir.dy));
+      if (overId == null || toId == null) continue;
+      if (blocked.has(overId) || blocked.has(toId)) continue;
+      if (!occupied.get(overId)) continue;
+      if (occupied.get(toId)) continue;
+      moves.push({ from: fromId, over: overId, to: toId });
+    }
+    return moves;
+  }
+
+  function hasAnyMoves() {
+    for (const n of nodes) {
+      if (blocked.has(n.id)) continue;
+      if (occupied.get(n.id) && computeMovesFrom(n.id).length > 0) return true;
+    }
+    return false;
+  }
+
+  function countPegs() {
+    let c = 0;
+    for (const n of nodes) {
+      if (blocked.has(n.id)) continue;
+      if (occupied.get(n.id)) c++;
+    }
+    return c;
+  }
+
+  function markSolved(puzzleId) {
+    const m = loadSolvedMap();
+    m[puzzleId] = true;
+    saveSolvedMap(m);
+  }
+
+  function checkEndState() {
+    if (editMode) return; // don't auto-solve while editing
+    if (hasAnyMoves()) return;
+    const puz = PUZZLES[currentPuzzleIndex];
+    const pegs = countPegs();
+    const goal = (puz.goalPegs ?? 1);
+    let ok = (pegs === goal);
+    if (ok && puz.goalAt) {
+      const id = coordToId.get(key(puz.goalAt[0], puz.goalAt[1]));
+      ok = (id != null && occupied.get(id) === true);
+    }
+    if (ok) {
+      statusEl.textContent = "Solved ✅";
+      markSolved(puz.id);
+    } else {
+      statusEl.textContent = "No moves";
+    }
+    updateSolvedUI();
+    populatePuzzleDropdown();
+  }
+
+  function applyMove(move) {
+    occupied.set(move.from, false);
+    occupied.set(move.over, false);
+    occupied.set(move.to, true);
+    movesMade += 1;
+    selectedId = null;
+    possibleLandings.clear();
+    updateUI();
+    draw();
+    checkEndState();
+  }
+
+  function updateUI() {
+    pegsLeftEl.textContent = String(countPegs());
+    movesMadeEl.textContent = String(movesMade);
+  }
+
+  // ---------- Drawing ----------
+  function drawBackgroundArt() {
+    const W = canvas.width, H = canvas.height;
+    ctx.save();
+    ctx.globalAlpha = 0.10;
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+
+    for (let y = H*0.62; y < H*0.92; y += 34) {
+      for (let x = W*0.06; x < W*0.94; x += 80) {
+        ctx.beginPath(); ctx.arc(x, y, 22, Math.PI, 0); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x+26, y, 18, Math.PI, 0); ctx.stroke();
+      }
+    }
+
+    function flower(cx, cy, r) {
+      for (let k = 0; k < 5; k++) {
+        const a = (Math.PI*2*k)/5;
+        const px = cx + Math.cos(a)*r*0.9;
+        const py = cy + Math.sin(a)*r*0.9;
+        ctx.beginPath(); ctx.arc(px, py, r*0.55, 0, Math.PI*2); ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(cx, cy, r*0.35, 0, Math.PI*2); ctx.stroke();
+    }
+    flower(W*0.12, H*0.30, 18);
+    flower(W*0.86, H*0.32, 16);
+    flower(W*0.18, H*0.52, 14);
+    flower(W*0.82, H*0.58, 14);
+
+    ctx.restore();
+  }
+
+  function draw() {
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    drawBackgroundArt();
+
+    const r = GRID_RADIUS_STEPS * spacing + spacing * 0.65;
+    ctx.save();
+    ctx.lineWidth = Math.max(3, spacing * 0.08);
+    ctx.strokeStyle = "rgba(0,0,0,0.75)";
+    ctx.beginPath(); ctx.arc(W/2, H/2, r, 0, Math.PI*2); ctx.stroke();
+    ctx.restore();
+
+    // light grid
+    ctx.save();
+    ctx.lineWidth = Math.max(2, spacing * 0.05);
+    ctx.strokeStyle = "rgba(0,0,0,0.16)";
+    for (const n of nodes) {
+      if (blocked.has(n.id) && !editMode) continue;
+      const neighbors = [{dx:1,dy:0},{dx:0,dy:1},{dx:1,dy:1},{dx:1,dy:-1}];
+      for (const d of neighbors) {
+        const nid = coordToId.get(key(n.gx + d.dx, n.gy + d.dy));
+        if (nid == null) continue;
+        if ((blocked.has(n.id) || blocked.has(nid)) && !editMode) continue;
+        const m = nodeById(nid);
+        ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(m.x, m.y); ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    for (const n of nodes) {
+      const isBlocked = blocked.has(n.id);
+      if (isBlocked && !editMode) continue;
+
+      const isSelected = (n.id === selectedId);
+      const isLanding = possibleLandings.has(n.id);
+
+      ctx.save();
+      ctx.lineWidth = Math.max(2, spacing * 0.06);
+      ctx.strokeStyle = isBlocked ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.85)";
+      ctx.fillStyle = isBlocked ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.86)";
+      ctx.beginPath(); ctx.arc(n.x, n.y, holeR, 0, Math.PI*2);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+
+      if (isBlocked){
+        ctx.save();
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = Math.max(2, spacing*0.05);
+        ctx.beginPath();
+        ctx.moveTo(n.x-holeR*0.8, n.y-holeR*0.8);
+        ctx.lineTo(n.x+holeR*0.8, n.y+holeR*0.8);
+        ctx.moveTo(n.x+holeR*0.8, n.y-holeR*0.8);
+        ctx.lineTo(n.x-holeR*0.8, n.y+holeR*0.8);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (builderGoalAt && n.gx === builderGoalAt[0] && n.gy === builderGoalAt[1]){
+        ctx.save();
+        ctx.strokeStyle = "rgba(180, 120, 0, 0.7)";
+        ctx.lineWidth = Math.max(3, spacing*0.07);
+        ctx.beginPath(); ctx.arc(n.x, n.y, holeR*1.30, 0, Math.PI*2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (isLanding) {
+        ctx.save();
+        ctx.lineWidth = Math.max(3, spacing * 0.08);
+        ctx.strokeStyle = "rgba(0, 120, 0, 0.75)";
+        ctx.beginPath(); ctx.arc(n.x, n.y, holeR * 1.22, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (occupied.get(n.id)) {
+        ctx.save();
+        ctx.fillStyle = "rgba(20,20,20,0.90)";
+        ctx.beginPath(); ctx.arc(n.x, n.y, pegR, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.25)";
+        ctx.beginPath(); ctx.arc(n.x - pegR*0.25, n.y - pegR*0.25, pegR*0.45, 0, Math.PI*2); ctx.fill();
+        if (isSelected) {
+          ctx.lineWidth = Math.max(3, spacing * 0.08);
+          ctx.strokeStyle = "rgba(0, 90, 200, 0.80)";
+          ctx.beginPath(); ctx.arc(n.x, n.y, pegR * 1.35, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+
+    if (!editMode && selectedId != null && possibleLandings.size > 0) {
+      const from = nodeById(selectedId);
+      for (const toId of possibleLandings) {
+        const to = nodeById(toId);
+        ctx.save();
+        ctx.strokeStyle = "rgba(0, 90, 200, 0.28)";
+        ctx.lineWidth = Math.max(2, spacing * 0.05);
+        ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  // ---------- Selection ----------
+  function setSelection(id) {
+    selectedId = id;
+    possibleLandings.clear();
+    if (!editMode && selectedId != null && occupied.get(selectedId) && !blocked.has(selectedId)) {
+      for (const m of computeMovesFrom(selectedId)) possibleLandings.add(m.to);
+    }
+  }
+
+  // ---------- Canvas click ----------
+  canvas.addEventListener('click', (e) => {
+    if (solverRunning) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const py = (e.clientY - rect.top) * (canvas.height / rect.height);
+    const hitId = findClosestNode(px, py);
+    if (hitId == null) return;
+
+    if (editMode){
+      // In edit mode: cycle state
+      cycleHoleState(hitId);
+      setSelection(hitId);
+      movesMade = 0;
+      updateUI();
+      buildSolverCaches();
+      draw();
+      return;
+    }
+
+    if (blocked.has(hitId)) return;
+
+    if (selectedId != null && possibleLandings.has(hitId)) {
+      const from = nodeById(selectedId);
+      const to = nodeById(hitId);
+      const overGx = (from.gx + to.gx) / 2;
+      const overGy = (from.gy + to.gy) / 2;
+      const overId = coordToId.get(key(overGx, overGy));
+      if (overId != null && !blocked.has(overId) && occupied.get(overId)) {
+        applyMove({ from: selectedId, over: overId, to: hitId });
+      }
+      return;
+    }
+
+    if (occupied.get(hitId)) setSelection(hitId);
+    else setSelection(null);
+    draw();
+  });
+
+  clearSelBtn.addEventListener('click', () => { setSelection(null); draw(); });
+
+  // ---------- Puzzle nav ----------
+  puzzleSelect.addEventListener("change", () => setPuzzleIndex(parseInt(puzzleSelect.value, 10) || 0));
+  prevBtn.addEventListener("click", () => setPuzzleIndex(currentPuzzleIndex - 1));
+  nextBtn.addEventListener("click", () => setPuzzleIndex(currentPuzzleIndex + 1));
+  restartBtn.addEventListener("click", () => applyPuzzle(PUZZLES[currentPuzzleIndex]));
+
+  // ---------- Speed ----------
+  function getPlaybackDelay(){ return Math.max(40, parseInt(speedSlider.value, 10) || 260); }
+  function updateSpeedLabel(){ speedLabel.textContent = `${getPlaybackDelay()}ms`; }
+  speedSlider.addEventListener("input", updateSpeedLabel);
+  updateSpeedLabel();
+
+  // ---------- Solver caches ----------
+  function buildSolverCaches(){
+    playableIds = [];
+    idToCompact = new Map();
+    for (const n of nodes){
+      if (blocked.has(n.id)) continue;
+      idToCompact.set(n.id, playableIds.length);
+      playableIds.push(n.id);
+    }
+
+    moveList = [];
+    for (const n of nodes){
+      if (blocked.has(n.id)) continue;
+      for (const dir of DIRS){
+        const overId = coordToId.get(key(n.gx + dir.dx, n.gy + dir.dy));
+        const toId   = coordToId.get(key(n.gx + 2*dir.dx, n.gy + 2*dir.dy));
+        if (overId == null || toId == null) continue;
+        if (blocked.has(overId) || blocked.has(toId)) continue;
+
+        const f = idToCompact.get(n.id);
+        const o = idToCompact.get(overId);
+        const t = idToCompact.get(toId);
+        if (f == null || o == null || t == null) continue;
+
+        moveList.push({ f, o, t, fromId:n.id, overId, toId });
+      }
+    }
+
+    solveProgress.value = 0;
+    solveProgress.max = 1;
+    solveStats.textContent = "0/0";
+  }
+
+  function stateToCompactArray(){
+    const arr = new Uint8Array(playableIds.length);
+    for (let i=0;i<playableIds.length;i++){
+      const id = playableIds[i];
+      arr[i] = occupied.get(id) ? 1 : 0;
+    }
+    return arr;
+  }
+  function compactArrayToKey(arr){
+    let s = "";
+    for (let i=0;i<arr.length;i++) s += (arr[i] ? "1" : "0");
+    return s;
+  }
+  function countPegsCompact(arr){
+    let c = 0;
+    for (let i=0;i<arr.length;i++) c += arr[i];
+    return c;
+  }
+  function anyMovesCompact(arr){
+    for (const m of moveList){
+      if (arr[m.f] === 1 && arr[m.o] === 1 && arr[m.t] === 0) return true;
+    }
+    return false;
+  }
+  function isGoalCompact(arr){
+    const puz = PUZZLES[currentPuzzleIndex];
+    const pegs = countPegsCompact(arr);
+    const goal = (puz.goalPegs ?? 1);
+    if (pegs !== goal) return false;
+    if (puz.goalAt){
+      const id = coordToId.get(key(puz.goalAt[0], puz.goalAt[1]));
+      if (id == null) return false;
+      const idx = idToCompact.get(id);
+      return idx != null && arr[idx] === 1;
+    }
+    return true;
+  }
+  function formatMs(ms){
+    if (ms == null) return "—";
+    const s = ms/1000;
+    if (s < 60) return s.toFixed(2) + "s";
+    const m = Math.floor(s/60);
+    const r = (s - m*60).toFixed(1);
+    return `${m}m ${r}s`;
+  }
+  function rateDifficulty(solutionLen, visitedCount){
+    let score = 0;
+    score += Math.min(6, Math.floor(solutionLen / 6));
+    score += Math.min(6, Math.floor(Math.log10(Math.max(10, visitedCount))));
+    if (score <= 3) return "Easy";
+    if (score <= 6) return "Medium";
+    if (score <= 9) return "Hard";
+    return "Brutal";
+  }
+
+  function setSolverButtons(running){
+    solverRunning = running;
+    solveBtn.disabled = running;
+    hintBtn.disabled = running;
+    restartBtn.disabled = running;
+    prevBtn.disabled = running;
+    nextBtn.disabled = running;
+    puzzleSelect.disabled = running;
+    stopBtn.disabled = !running;
+
+    // builder controls too
+    editModeBtn.disabled = running;
+    fillAllBtn.disabled = running;
+    clearAllBtn.disabled = running;
+    unblockAllBtn.disabled = running;
+    setGoalBtn.disabled = running;
+    saveCustomBtn.disabled = running;
+    newCustomBtn.disabled = running;
+    deleteCustomBtn.disabled = running;
+    exportBtn.disabled = running;
+    importBtn.disabled = running;
+  }
+
+  async function animateMoves(moves){
+    for (let i=0;i<moves.length;i++){
+      if (solverStopRequested) break;
+      applyMove(moves[i]);
+      await new Promise(res => setTimeout(res, getPlaybackDelay()));
+    }
+    setSolverButtons(false);
+    const wasStopped = solverStopRequested;
+    solverStopRequested = false;
+    if (lastSolveSnapshot){
+      restoreBoardState(lastSolveSnapshot);
+      lastSolveSnapshot = null;
+      statusEl.textContent = wasStopped ? "Solver stopped (reset)" : "Solution shown (reset)";
+    }
+  }
+
+  function extractSolution(entry){
+    const moves = [];
+    let cur = entry;
+    while (cur && cur.move){
+      moves.push(cur.move);
+      cur = cur.prev;
+    }
+    moves.reverse();
+    return moves;
+  }
+
+  function showHintMove(move){
+    setSelection(move.from);
+    possibleLandings = new Set([move.to]);
+    statusEl.textContent = "Hint shown";
+    draw();
+  }
+
+  function solveOrHint(wantFullSolve){
+    if (solverRunning) return;
+    if (editMode) setEditMode(false); // switch out of edit to prevent weirdness
+    lastSolveSnapshot = wantFullSolve ? snapshotBoardState() : null;
+    solverStopRequested = false;
+    setSolverButtons(true);
+    statusEl.textContent = wantFullSolve ? "Solving..." : "Searching hint...";
+    solveTimeEl.textContent = "—";
+    difficultyEl.textContent = "—";
+    solveProgress.value = 0;
+
+    const startMs = performance.now();
+    const startArr = stateToCompactArray();
+    const startKey = compactArrayToKey(startArr);
+
+    const visited = new Set();
+    const stack = [{ arr: startArr, key: startKey, prev: null, move: null }];
+
+    const MAX_VISITS = 160000;
+    let visits = 0;
+    solveProgress.max = MAX_VISITS;
+
+    function stepChunk(){
+      if (solverStopRequested){
+        statusEl.textContent = "Solver stopped";
+        setSolverButtons(false);
+        solverStopRequested = false;
+        if (lastSolveSnapshot){
+          restoreBoardState(lastSolveSnapshot);
+          lastSolveSnapshot = null;
+          statusEl.textContent = "Solver stopped (reset)";
+        }
+        return;
+      }
+
+      const CHUNK = 1200;
+      let iter = 0;
+
+      while (stack.length > 0 && iter < CHUNK){
+        const entry = stack.pop();
+        if (visited.has(entry.key)) { iter++; continue; }
+        visited.add(entry.key);
+        visits++;
+        iter++;
+
+        if (isGoalCompact(entry.arr) && !anyMovesCompact(entry.arr)) {
+          const elapsed = performance.now() - startMs;
+          solveTimeEl.textContent = formatMs(elapsed);
+          const solutionMoves = extractSolution(entry);
+          difficultyEl.textContent = rateDifficulty(solutionMoves.length, visits);
+          solveProgress.value = visits;
+          solveStats.textContent = `${visits}/${MAX_VISITS}`;
+
+          if (wantFullSolve){
+            statusEl.textContent = "Solution found";
+            const boardMoves = solutionMoves.map(m => ({from:m.fromId, over:m.overId, to:m.toId}));
+            animateMoves(boardMoves);
+          } else {
+            statusEl.textContent = "Hint ready";
+            const first = solutionMoves[0];
+            setSolverButtons(false);
+            solverStopRequested = false;
+            if (first) showHintMove({from:first.fromId, to:first.toId});
+            else statusEl.textContent = "No hint (already solved?)";
+          }
+          return;
+        }
+
+        if (visits >= MAX_VISITS){
+          statusEl.textContent = "No solution (or limit reached)";
+          const elapsed = performance.now() - startMs;
+          solveTimeEl.textContent = formatMs(elapsed);
+          setSolverButtons(false);
+          solverStopRequested = false;
+          if (lastSolveSnapshot){
+            restoreBoardState(lastSolveSnapshot);
+            lastSolveSnapshot = null;
+            statusEl.textContent = "No solution (reset)";
+          }
+          return;
+        }
+
+        for (const m of moveList){
+          if (entry.arr[m.f] === 1 && entry.arr[m.o] === 1 && entry.arr[m.t] === 0){
+            const next = entry.arr.slice();
+            next[m.f] = 0;
+            next[m.o] = 0;
+            next[m.t] = 1;
+            const k = compactArrayToKey(next);
+            if (!visited.has(k)){
+              stack.push({ arr: next, key: k, prev: entry, move: m });
+            }
+          }
+        }
+      }
+
+      solveProgress.value = visits;
+      solveStats.textContent = `${visits}/${MAX_VISITS}`;
+      solveTimeEl.textContent = formatMs(performance.now() - startMs);
+      requestAnimationFrame(stepChunk);
+    }
+
+    requestAnimationFrame(stepChunk);
+  }
+
+  hintBtn.addEventListener("click", () => solveOrHint(false));
+  solveBtn.addEventListener("click", () => solveOrHint(true));
+  stopBtn.addEventListener("click", () => { solverStopRequested = true; });
+
+  // ---------- Builder ----------
+  function updateGoalAtLabel(val){
+    goalAtLabel.textContent = val ? `[${val[0]},${val[1]}]` : "none";
+  }
+
+  function setEditMode(on){
+    editMode = on;
+    builderModeLabel.textContent = on ? "EDIT ON" : "OFF";
+    editModeBtn.textContent = on ? "Exit Edit" : "Enter Edit";
+    statusEl.textContent = on ? "Builder: edit" : "Playing";
+    setSelection(null);
+    possibleLandings.clear();
+    draw();
+  }
+
+  function cycleHoleState(id){
+    // Cycle: empty -> peg -> blocked -> empty ...
+    const isBlocked = blocked.has(id);
+    const isPeg = occupied.get(id) === true;
+
+    if (!isBlocked && !isPeg){
+      occupied.set(id, true);
+    } else if (!isBlocked && isPeg){
+      occupied.set(id, false);
+      blocked.add(id);
+    } else {
+      blocked.delete(id);
+      occupied.set(id, false);
+    }
+  }
+
+  function fillAllPegs(){
+    for (const n of nodes){
+      if (blocked.has(n.id)) continue;
+      occupied.set(n.id, true);
+    }
+  }
+  function clearAllPegs(){
+    for (const n of nodes){
+      if (blocked.has(n.id)) continue;
+      occupied.set(n.id, false);
+    }
+  }
+  function unblockAll(){
+    blocked = new Set();
+    for (const n of nodes){
+      if (occupied.get(n.id) == null) occupied.set(n.id, false);
+    }
+  }
+
+  function exportLayoutObject(nameOverride=null, idOverride=null){
+    const pegs = [];
+    const blockedCoords = [];
+    for (const n of nodes){
+      if (blocked.has(n.id)) blockedCoords.push([n.gx, n.gy]);
+      else if (occupied.get(n.id)) pegs.push([n.gx, n.gy]);
+    }
+    const name = (nameOverride || customName.value || "Custom Puzzle").trim() || "Custom Puzzle";
+    const obj = {
+      id: idOverride || ("custom-" + Date.now()),
+      name,
+      blocked: blockedCoords,
+      pegs,
+      goalPegs: 1
+    };
+    if (builderGoalAt) obj.goalAt = builderGoalAt;
+    return obj;
+  }
+
+  function loadLayoutObjectIntoBoard(obj){
+    // Use this for import/new without changing PUZZLES list yet
+    blocked = new Set();
+    occupied = new Map();
+    for (const n of nodes) occupied.set(n.id, false);
+
+    for (const [gx,gy] of (obj.blocked || [])){
+      const id = coordToId.get(key(gx,gy));
+      if (id != null) blocked.add(id);
+    }
+    for (const [gx,gy] of (obj.pegs || [])){
+      const id = coordToId.get(key(gx,gy));
+      if (id != null && !blocked.has(id)) occupied.set(id, true);
+    }
+    for (const id of blocked) occupied.set(id, false);
+
+    builderGoalAt = obj.goalAt || null;
+    updateGoalAtLabel(builderGoalAt);
+
+    movesMade = 0;
+    updateUI();
+    buildSolverCaches();
+    draw();
+  }
+
+  function isCurrentPuzzleCustom(){
+    const p = PUZZLES[currentPuzzleIndex];
+    return p && String(p.id || "").startsWith("custom-");
+  }
+
+  function updateDeleteButtonLabel(){
+    const p = PUZZLES[currentPuzzleIndex];
+    if (!p) return;
+    const isCustom = String(p.id||"").startsWith("custom-");
+    deleteCustomBtn.textContent = "Delete";
+    deleteCustomBtn.title = "Delete this puzzle from your list";
+  }
+
+
+  function saveCustomPuzzle(){
+    // Save should NOT overwrite by default.
+    // Every press of Save creates a new custom puzzle entry.
+    const custom = loadCustomPuzzles();
+    const obj = exportLayoutObject();
+    custom.push(obj);
+    saveCustomPuzzles(custom);
+    statusEl.textContent = "Custom puzzle saved";
+
+    rebuildPuzzlesList();
+    updateSolvedUI();
+    populatePuzzleDropdown();
+
+    // Jump to the newly saved puzzle
+    const idx2 = PUZZLES.findIndex(p => p.id === obj.id);
+    if (idx2 >= 0) setPuzzleIndex(idx2);
+
+    // Now we're editing that specific custom puzzle
+    overwriteTargetId = obj.id;
+  }
+
+  function newBlankCustom(){
+    unblockAll();
+    clearAllPegs();
+    builderGoalAt = null;
+    overwriteTargetId = null;
+    updateGoalAtLabel(builderGoalAt);
+    customName.value = "";
+    puzzleNameEl.textContent = "Custom — Unsaved";
+    statusEl.textContent = "Builder: edit";
+    movesMade = 0;
+    updateUI();
+    buildSolverCaches();
+    setEditMode(true);
+    draw();
+  }
+
+  function deleteCurrentCustom(){
+    const p = PUZZLES[currentPuzzleIndex];
+    if (!p){ statusEl.textContent = "No puzzle selected"; return; }
+
+    const isCustom = String(p.id||"").startsWith("custom-");
+    const actionWord = "delete";
+    const ok = confirm(`Are you sure you want to ${actionWord} "${p.name}"?`);
+    if (!ok) return;
+
+    if (isCustom){
+      const filtered = loadCustomPuzzles().filter(x => x.id !== p.id);
+      saveCustomPuzzles(filtered);
+      statusEl.textContent = "Custom puzzle deleted";
+    } else {
+      const hidden = loadHiddenSet();
+      hidden.add(p.id);
+      saveHiddenSet(hidden);
+      statusEl.textContent = "Puzzle deleted";
+    }
+
+    rebuildPuzzlesList();
+    populatePuzzleDropdown();
+    updateSolvedUI();
+
+    const nextIdx = Math.min(currentPuzzleIndex, Math.max(0, PUZZLES.length - 1));
+    setPuzzleIndex(nextIdx);
+  }
+
+  function exportToJsonBox(){
+    const current = PUZZLES[currentPuzzleIndex];
+    const id = isCurrentPuzzleCustom() ? current.id : null;
+    const obj = exportLayoutObject(null, id);
+    jsonBox.value = JSON.stringify(obj, null, 2);
+    statusEl.textContent = "Exported JSON";
+  }
+
+  function importFromJsonBox(){
+    try{
+      const obj = JSON.parse(jsonBox.value);
+      if (!obj || typeof obj !== "object") throw new Error("Bad JSON");
+      // normalize a little
+      obj.id = obj.id || ("custom-" + Date.now());
+      obj.name = obj.name || "Imported Custom";
+      obj.pegs = Array.isArray(obj.pegs) ? obj.pegs : [];
+      obj.blocked = Array.isArray(obj.blocked) ? obj.blocked : [];
+      obj.goalPegs = obj.goalPegs ?? 1;
+
+      // load into board (not saved yet)
+      loadLayoutObjectIntoBoard(obj);
+      customName.value = obj.name;
+      puzzleNameEl.textContent = "Custom — Unsaved (Imported)";
+      overwriteTargetId = null;
+      statusEl.textContent = "Imported (hit Save to keep)";
+      setEditMode(true);
+    } catch (e){
+      statusEl.textContent = "Import failed (check JSON)";
+    }
+  }
+
+  // Builder UI wiring
+  builderToggleBtn.addEventListener("click", () => {
+    builderOpen = !builderOpen;
+    builderPanel.classList.toggle("show", builderOpen);
+    if (!builderOpen) setEditMode(false);
+  });
+
+  editModeBtn.addEventListener("click", () => setEditMode(!editMode));
+  fillAllBtn.addEventListener("click", () => { if (!editMode) setEditMode(true); fillAllPegs(); buildSolverCaches(); draw(); updateUI(); });
+  clearAllBtn.addEventListener("click", () => { if (!editMode) setEditMode(true); clearAllPegs(); buildSolverCaches(); draw(); updateUI(); });
+  unblockAllBtn.addEventListener("click", () => { if (!editMode) setEditMode(true); unblockAll(); buildSolverCaches(); draw(); updateUI(); });
+
+  setGoalBtn.addEventListener("click", () => {
+    if (selectedId == null) { statusEl.textContent = "Select a hole first"; return; }
+    const n = nodeById(selectedId);
+    if (blocked.has(selectedId)) { statusEl.textContent = "Goal can't be blocked"; return; }
+    builderGoalAt = [n.gx, n.gy];
+    updateGoalAtLabel(builderGoalAt);
+    statusEl.textContent = "GoalAt set";
+    draw();
+  });
+
+  saveCustomBtn.addEventListener("click", saveCustomPuzzle);
+  newCustomBtn.addEventListener("click", newBlankCustom);
+  deleteCustomBtn.addEventListener("click", deleteCurrentCustom);
+  showHiddenBtn.addEventListener("click", () => {
+    const ok = confirm("Show all hidden built-in puzzles again?");
+    if (!ok) return;
+    saveHiddenSet(new Set());
+    statusEl.textContent = "Deleted puzzles restored";
+    rebuildPuzzlesList();
+    populatePuzzleDropdown();
+    updateSolvedUI();
+    setPuzzleIndex(0);
+  });
+  exportBtn.addEventListener("click", exportToJsonBox);
+  importBtn.addEventListener("click", importFromJsonBox);
+
+  // ---------- Boot ----------
+  function init() {
+    rebuildGeometry();
+    rebuildPuzzlesList();
+    updateSolvedUI();
+    populatePuzzleDropdown();
+
+    const lastId = localStorage.getItem(LS_LAST);
+    const idx = lastId ? PUZZLES.findIndex(p => p.id === lastId) : 0;
+    setPuzzleIndex(idx >= 0 ? idx : 0);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
