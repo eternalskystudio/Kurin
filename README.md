@@ -1,0 +1,2 @@
+# Kurin
+circular peg solitaire
